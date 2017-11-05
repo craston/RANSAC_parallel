@@ -2,20 +2,33 @@
 #include <iostream>
 #include <stdio.h>
 #include <iostream>
+#include <math.h>
 #include "opencv2/features2d.hpp"
 #include "opencv2/core.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/xfeatures2d.hpp"
+#include "opencv2/opencv.hpp"
 
 using namespace std;
 using namespace cv;
 using namespace cv::xfeatures2d;
 void readme();
+bool contains(vector<int> rand_idx, int num);
+float distance(float x1, float y1, float x2, float y2);
 /*
  * @function main
  * @brief Main function
  */
+
+// Creating struture for 3d point
+#define ROW 3
+#define COL 3
+
+struct pt3D{
+  float x,y,z;
+};
+
 int main( int argc, char** argv )
 {
   if( argc != 3 )
@@ -83,6 +96,90 @@ int main( int argc, char** argv )
   { 
     printf( "-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx ); 
   }
+
+  // --- RANSAC Algorithm Serial
+  std::vector<Point3f> src_pts;
+  std::vector<Point3f> dst_pts;
+  Point3f temp;
+  int N = (int)good_matches.size();
+
+  for( int i = 0; i < N; i++ ){
+    temp.x = keypoints_1[good_matches[i].queryIdx].pt.x;
+    temp.y = keypoints_1[good_matches[i].queryIdx].pt.y;
+    temp.z = 1;
+    src_pts.push_back(temp);
+
+    temp.x = keypoints_2[good_matches[i].trainIdx].pt.x;
+    temp.y = keypoints_2[good_matches[i].trainIdx].pt.y;
+    dst_pts.push_back(temp);
+    printf("Source points = [%f,%f,%f]\n", src_pts[i].x, src_pts[i].y, src_pts[i].z);
+  }
+
+  std::vector<Point3f> src_random, dst_random;
+  int outliers, num;
+  int past_outliers = N +1;
+  std::vector<int> rand_idx_src, rand_idx_dst, idx_remove, Best_idx_remove;
+  std::vector< DMatch > best_matches = good_matches;
+  std::vector< KeyPoint > best_keypoints_1 = keypoints_1;
+  std::vector< KeyPoint > best_keypoints_2 = keypoints_2;
+  Mat H, Best_H;
+
+  for(int k =0; k<2000; k++){
+    // Generating 3 random src_points
+    cout<<"ITERATION ="<<k<<endl;
+    idx_remove.clear();
+    rand_idx_src.clear();
+    rand_idx_dst.clear();
+    outliers = 0;
+    
+    for(int j = 0; j<3; j++){
+      do{num = rand()%N;}while (contains(rand_idx_src, num));
+      
+      rand_idx_src.push_back(num);
+      src_random.push_back(src_pts[num]);
+      cout<<"source random index ["<<j<<"]:"<< num << endl;
+
+      do{num = rand()%N;}while (contains(rand_idx_dst, num));
+      rand_idx_dst.push_back(num);;
+      dst_random.push_back(dst_pts[num]);
+      cout<<"destination random index ["<<j<<"]:"<< num << endl;
+    }
+    H = findHomography(src_random, dst_random);
+    cout<<"H = "<<H<<endl;
+
+    for(int i = 0 ; i<N ; i++){
+      Point2f temp;
+      temp.x = H.at<double>(0,0)*src_pts[i].x + H.at<double>(0,1)*src_pts[i].y + H.at<double>(0,2)*src_pts[i].z;
+      temp.y = H.at<double>(1,0)*src_pts[i].x + H.at<double>(1,1)*src_pts[i].y + H.at<double>(1,2)*src_pts[i].z;
+      //cout<<"H "<<H.at<double>(1,0)<<" "<<H.at<double>(1,1)<<" "<<H.at<double>(1,1)<<endl;
+      //cout<<"source "<<src_pts[i].x<<" "<<src_pts[i].y<<" "<<src_pts[i].z<<endl;
+      //cout<<"temp.x "<<temp.x<<" temp.y "<<temp.y<<endl;
+
+      //cout<<"distance = "<<distance(temp.x, temp.y, dst_pts[i].x, dst_pts[i].y )<<endl;
+      if(distance(temp.x, temp.y, dst_pts[i].x, dst_pts[i].y )> 300 ){
+        outliers += 1;
+        idx_remove.push_back(i);
+      }
+    }
+    cout<<"Number"<< outliers<<endl;
+    if(outliers < past_outliers){
+      cout<<"iteration["<<k<<"]: outliers = "<<outliers;
+      past_outliers = outliers;
+      Best_H = H;
+      Best_idx_remove = idx_remove;
+    }
+  } 
+
+  for(int i =0; i< (int)Best_idx_remove.size(); i++){
+      cout<<"ITERATION = "<<i<<endl;
+      best_matches.erase(best_matches.begin() + Best_idx_remove[i] - i);
+  }
+  drawMatches( img_1, best_keypoints_1, img_2, best_keypoints_2,
+               best_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
+               vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+  //-- Show detected matches
+  imshow( "Best Matches", img_matches );
+
   waitKey(0);
   return 0;
 }
@@ -92,4 +189,15 @@ int main( int argc, char** argv )
 void readme()
 { 
   std::cout << " Usage: ./SURF_FlannMatcher <img1> <img2>" << std::endl; 
+}
+
+/*
+ * @function contains
+ */
+bool contains(std::vector<int> rand_idx, int num){
+  return std::find(rand_idx.begin(), rand_idx.end(), num) != rand_idx.end();
+}
+
+float distance(float x1, float y1, float x2, float y2){
+  return(sqrt(pow(x1 - x2, 2) + pow(y1 - y2,2)));
 }
