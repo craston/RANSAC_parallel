@@ -161,7 +161,7 @@ int main( int argc, char** argv )
         idx_remove.push_back(i);
       }
     }
-    cout<<"Number"<< outliers<<endl;
+    cout<<"Number of outliers: "<< outliers<<endl;
     if(outliers < past_outliers){
       cout<<"iteration["<<k<<"]: outliers = "<<outliers;
       past_outliers = outliers;
