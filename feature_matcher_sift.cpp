@@ -9,6 +9,7 @@
 #include "opencv2/highgui.hpp"
 #include "opencv2/xfeatures2d.hpp"
 #include "opencv2/opencv.hpp"
+#include "omp.h"
 
 using namespace std;
 using namespace cv;
@@ -121,8 +122,11 @@ int main( int argc, char** argv )
   std::vector<int> rand_idx_src, rand_idx_dst, idx_remove, Best_idx_remove;
   std::vector< DMatch > best_matches = good_matches;
   std::vector< KeyPoint > best_keypoints_1 = keypoints_1;
-  std::vector< KeyPoint > best_keypoints_2 = keypoints_2;
+  std::vector< KeyPoint > best_keyp1oints_2 = keypoints_2;
   Mat H, Best_H;
+
+  //#pragma omp parallel schedule(dynamic) for private(k, outliers)
+  double start_time = omp_get_wtime();
 
   for(int k =0; k<2000; k++){
     // Generating 3 random src_points
@@ -151,11 +155,7 @@ int main( int argc, char** argv )
       Point2f temp;
       temp.x = H.at<double>(0,0)*src_pts[i].x + H.at<double>(0,1)*src_pts[i].y + H.at<double>(0,2)*src_pts[i].z;
       temp.y = H.at<double>(1,0)*src_pts[i].x + H.at<double>(1,1)*src_pts[i].y + H.at<double>(1,2)*src_pts[i].z;
-      //cout<<"H "<<H.at<double>(1,0)<<" "<<H.at<double>(1,1)<<" "<<H.at<double>(1,1)<<endl;
-      //cout<<"source "<<src_pts[i].x<<" "<<src_pts[i].y<<" "<<src_pts[i].z<<endl;
-      //cout<<"temp.x "<<temp.x<<" temp.y "<<temp.y<<endl;
-
-      //cout<<"distance = "<<distance(temp.x, temp.y, dst_pts[i].x, dst_pts[i].y )<<endl;
+      
       if(distance(temp.x, temp.y, dst_pts[i].x, dst_pts[i].y )> 300 ){
         outliers += 1;
         idx_remove.push_back(i);
@@ -169,11 +169,14 @@ int main( int argc, char** argv )
       Best_idx_remove = idx_remove;
     }
   } 
+  double run_time = omp_get_wtime() - start_time;
+  cout<< "Runtime "<< run_time;
 
   for(int i =0; i< (int)Best_idx_remove.size(); i++){
       cout<<"ITERATION = "<<i<<endl;
       best_matches.erase(best_matches.begin() + Best_idx_remove[i] - i);
   }
+  
   drawMatches( img_1, best_keypoints_1, img_2, best_keypoints_2,
                best_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
                vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
