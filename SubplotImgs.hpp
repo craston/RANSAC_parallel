@@ -6,7 +6,7 @@
 using namespace cv;
 using namespace std;
 
-//returns an image containg all images
+//returns an image containing all images
 Mat SubPlot(vector<Mat> imgs ) {
 
 int size;
@@ -68,8 +68,14 @@ else {
 
 x = imgs[0].cols;
 y = imgs[0].rows;
+assert(x!=0 && y != 0);
+// Find whether height or width is greater in order to resize the image
+max = (x > y)? x: y;
 
-Mat DispImage(y+100, x+200, CV_8UC1, Scalar(128));
+// Find the scaling factor to resize the image
+scale = (float) ( (float) max / size );
+
+Mat DispImage((int)max +(int)( y/scale )-200,(int)max +(int)( x/scale ), CV_8UC1, Scalar(128));
 
 // Loop for nArgs number of arguments
 for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
@@ -82,14 +88,6 @@ for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
         printf("Invalid arguments");
         return Mat::zeros(Size(100, 60), CV_8UC3);
     }
-
-    //cout<<x<<" "<<y<<endl;
-    assert(x!=0 && y != 0);
-    // Find whether height or width is greater in order to resize the image
-    max = (x > y)? x: y;
-
-    // Find the scaling factor to resize the image
-    scale = (float) ( (float) max / size );
 
     // Used to Align the images
     if( i % w == 0 && m!= 20) {
