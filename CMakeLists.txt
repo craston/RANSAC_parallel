@@ -1,3 +1,4 @@
+set (CMAKE_CXX_STANDARD 11)
 cmake_minimum_required(VERSION 2.8)
 project( feature_matcher_sift_parallel)
 find_package(OpenMP)

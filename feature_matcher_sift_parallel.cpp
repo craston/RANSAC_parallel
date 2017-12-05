@@ -10,25 +10,28 @@
 #include "opencv2/xfeatures2d.hpp"
 #include "opencv2/opencv.hpp"
 #include "omp.h"
+#include <random>
 
 using namespace std;
 using namespace cv;
 using namespace cv::xfeatures2d;
+#define nb_experiments 1
+
+struct time_best
+{
+    double time;
+    std::vector< DMatch > best_matches;
+};
+
+
 void readme();
 bool contains(vector<int> rand_idx, int num);
 float distance(float x1, float y1, float x2, float y2);
-/*
- * @function main
- * @brief Main function
- */
+time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<KeyPoint> keypoints_1, std::vector<KeyPoint> keypoints_2, std::vector<DMatch> good_matches);
 
 // Creating struture for 3d point
 #define ROW 3
 #define COL 3
-
-struct pt3D{
-  float x,y,z;
-};
 
 int main( int argc, char** argv )
 {
@@ -47,9 +50,7 @@ int main( int argc, char** argv )
   }
   
   //-- Step 1: Detect the keypoints using SIFT Detector, compute the descriptors
-  //int minHessian = 400;
   Ptr<SIFT> detector = SIFT::create();
-  //detector->setHessianThreshold(minHessian);
   std::vector<KeyPoint> keypoints_1, keypoints_2;
   Mat descriptors_1, descriptors_2;
   detector->detectAndCompute( img_1, Mat(), keypoints_1, descriptors_1 );
@@ -79,7 +80,7 @@ int main( int argc, char** argv )
   std::vector< DMatch > good_matches;
   for( int i = 0; i < descriptors_1.rows; i++ )
   { 
-    if( matches[i].distance <= max(2*min_dist, 0.02) )
+    if( matches[i].distance <= max(3*min_dist, 0.02) )
     { 
       good_matches.push_back( matches[i]); 
     }
@@ -93,12 +94,34 @@ int main( int argc, char** argv )
   //-- Show detected matches
   imshow( "Good Matches", img_matches );
   
-  for( int i = 0; i < (int)good_matches.size(); i++ )
+  /*for( int i = 0; i < (int)good_matches.size(); i++ )
   { 
-    printf( "-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx ); 
-  }
+    //printf( "-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx ); 
+  }*/
+  cout<<"Number of  matches : "<<(int)matches.size()<<endl;
+  cout<<"Number of Good matches : "<<(int)good_matches.size()<<endl;
+  double time = 0;
+  //for(int i = 0; i<nb_experiments; i++){
+    //time += RANSAC_parallel(img_1, img_2, keypoints_1, keypoints_2, good_matches);
+  //}
+  time_best result = RANSAC_parallel(img_1, img_2, keypoints_1, keypoints_2, matches);
+  std::vector<DMatch> best_matches = result.best_matches;
+  time = result.time;
+  printf("Average time = %f\n", time/nb_experiments);
+
+  drawMatches( img_1, keypoints_1, img_2, keypoints_2, best_matches, img_matches, Scalar::all(-1), Scalar::all(-1),vector<char>(), 
+  	DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+  //-- Show detected best matches
+  imshow( "Best Matches", img_matches );
+
+  return 0;
+
+}
+
+time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<KeyPoint> keypoints_1, std::vector<KeyPoint> keypoints_2, std::vector<DMatch> good_matches){
 
   // --- RANSAC Algorithm Serial
+  printf("Hi from RANSAC\n");
   std::vector<Point3f> src_pts;
   std::vector<Point3f> dst_pts;
   Point3f temp;
@@ -113,7 +136,7 @@ int main( int argc, char** argv )
     temp.x = keypoints_2[good_matches[i].trainIdx].pt.x;
     temp.y = keypoints_2[good_matches[i].trainIdx].pt.y;
     dst_pts.push_back(temp);
-    printf("Source points = [%f,%f,%f]\n", src_pts[i].x, src_pts[i].y, src_pts[i].z);
+    //printf("Source points = [%f,%f,%f]\n", src_pts[i].x, src_pts[i].y, src_pts[i].z);
   }
 
   std::vector<Point3f> src_random, dst_random;
@@ -121,16 +144,14 @@ int main( int argc, char** argv )
   int past_outliers = N +1;
   std::vector<int> rand_idx_src, rand_idx_dst, idx_remove, Best_idx_remove;
   std::vector< DMatch > best_matches = good_matches;
-  std::vector< KeyPoint > best_keypoints_1 = keypoints_1;
-  std::vector< KeyPoint > best_keypoints_2 = keypoints_2;
-  Mat H, Best_H;
+  Mat H;
 
   register unsigned int i,j,k;
   double start_time = omp_get_wtime();
 
-  #pragma omp parallel for schedule(dynamic) private(i, j, k, rand_idx_src, rand_idx_dst, idx_remove, H, src_random, dst_random, outliers, num)
+  #pragma omp parallel for schedule(dynamic) private(i, j, rand_idx_src, rand_idx_dst, idx_remove, H, src_random, dst_random, outliers, num)
 
-  for(k =0; k<2000; k++){
+  for(k =0; k<2000 ; k++){
     // Generating 3 random src_points
     //cout<<"ITERATION ="<<k<<endl;
     idx_remove.clear();
@@ -139,54 +160,71 @@ int main( int argc, char** argv )
     outliers = 0;
     
     for(j = 0; j<3; j++){
-      do{num = rand()%N;}while (contains(rand_idx_src, num));
-      
+      do{
+      	std::random_device rd;
+      	std::mt19937 mt(rd());
+        std::uniform_int_distribution<int> distribution(0,N-1);    
+        num = distribution(rd); 
+      	}while (contains(rand_idx_src, num));
       rand_idx_src.push_back(num);
       src_random.push_back(src_pts[num]);
-      cout<<"source random index ["<<j<<"]:"<< num << endl;
-
-      do{num = rand()%N;}while (contains(rand_idx_dst, num));
+      
+      do{
+      	std::random_device rd;
+      	std::mt19937 mt(rd());
+        std::uniform_int_distribution<int> distribution(0,N-1);    
+        num = distribution(rd); }while (contains(rand_idx_dst, num));
       rand_idx_dst.push_back(num);;
       dst_random.push_back(dst_pts[num]);
       //cout<<"destination random index ["<<j<<"]:"<< num << endl;
     }
+    //cout<<"Thread number "<< omp_get_thread_num()<<" " <<rand_idx_src[0]<<", "<<rand_idx_src[1]<<", "<<rand_idx_src[2]<<endl<<flush;
+
     H = findHomography(src_random, dst_random);
     //cout<<"H = "<<H<<endl;
 
     for(i = 0 ; i<N ; i++){
-      Point2f temp;
-      temp.x = H.at<double>(0,0)*src_pts[i].x + H.at<double>(0,1)*src_pts[i].y + H.at<double>(0,2)*src_pts[i].z;
-      temp.y = H.at<double>(1,0)*src_pts[i].x + H.at<double>(1,1)*src_pts[i].y + H.at<double>(1,2)*src_pts[i].z;
+      Point2f temp2;
+      temp2.x = H.at<double>(0,0)*src_pts[i].x + H.at<double>(0,1)*src_pts[i].y + H.at<double>(0,2)*src_pts[i].z;
+      temp2.y = H.at<double>(1,0)*src_pts[i].x + H.at<double>(1,1)*src_pts[i].y + H.at<double>(1,2)*src_pts[i].z;
       
-      if(distance(temp.x, temp.y, dst_pts[i].x, dst_pts[i].y )> 50 ){
+      //cout<<distance(temp2.x, temp2.y, dst_pts[i].x, dst_pts[i].y )<<endl;
+      if(distance(temp2.x, temp2.y, dst_pts[i].x, dst_pts[i].y )> 2000){
         outliers += 1;
         idx_remove.push_back(i);
       }
     }
     //cout<<"Number of outliers: "<< outliers<<endl<<flush;
     #pragma omp critical
+    {
       if(outliers < past_outliers){
-        cout<<"iteration["<<k<<"]"<<outliers<<endl<<flush;
+        cout<<"Thread number "<< omp_get_thread_num()<<" iteration["<<k<<"]: "<<outliers<<endl<<flush;
         past_outliers = outliers;
         Best_idx_remove = idx_remove;
       }
+    }
   } 
 
   double run_time = omp_get_wtime() - start_time;
-  cout<< "Runtime "<< run_time<<endl<<flush;
-  cout<<"Number of outliers: "<< past_outliers<<endl<<flush;
+  //cout<<"Thread number "<< omp_get_thread_num()<<" " << "Runtime "<< run_time<<endl<<flush;
+  //cout<<"Thread number "<< omp_get_thread_num()<<" " <<"Number of outliers: "<< past_outliers<<endl<<flush;
 
   for(int i =0; i< (int)Best_idx_remove.size(); i++){
-      cout<<"ITERATION = ["<<i<<"] :"<< Best_idx_remove[i]<<endl<<flush;
+      //cout<<"ITERATION = ["<<i<<"] :"<< Best_idx_remove[i]<<endl<<flush;
       best_matches.erase(best_matches.begin() + Best_idx_remove[i] - i);
   }
   
-  drawMatches( img_1, best_keypoints_1, img_2, best_keypoints_2, best_matches, img_matches, Scalar::all(-1), Scalar::all(-1),vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+  //drawMatches( img_1, best_keypoints_1, img_2, best_keypoints_2, best_matches, img_matches, Scalar::all(-1), Scalar::all(-1),vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
   //-- Show detected matches
-  imshow( "Best Matches", img_matches );
+  //imshow( "Best Matches", img_matches );
 
-  waitKey(0);
-  return 0;
+  //waitKey(0);
+
+  time_best result;
+  result.time = run_time;
+  result.best_matches = best_matches;
+
+  return result;
 }
 /*
  * @function readme
