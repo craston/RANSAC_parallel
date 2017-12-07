@@ -6,8 +6,9 @@
 using namespace cv;
 using namespace std;
 
-//returns an image containing all images
-Mat SubPlot(vector<Mat> imgs ) {
+//returns an image containg all images
+
+Mat SubPlot(vector<Mat> imgs, int ChangeSize=1 ) {
 
 int size;
 int i;
@@ -74,8 +75,11 @@ max = (x > y)? x: y;
 
 // Find the scaling factor to resize the image
 scale = (float) ( (float) max / size );
+int Y;
+if(nArgs>3) Y = (int)( y/scale - 200);
+else Y = (int)( y/scale);
 
-Mat DispImage((int)max +(int)( y/scale )-200,(int)max +(int)( x/scale ), CV_8UC1, Scalar(128));
+Mat DispImage((int)max + Y,(int)max +(int)( x/scale ), CV_8UC1, Scalar(128));
 
 // Loop for nArgs number of arguments
 for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
@@ -97,13 +101,48 @@ for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
 
     // Set the image ROI to display the current image
     // Resize the input image and copy it to the Single Big Image
-    Rect ROI(m, n, (int)( x/scale ), (int)( y/scale ));
-    Mat temp; 
-    resize(img,temp, Size(ROI.width, ROI.height));
-    temp.copyTo(DispImage(ROI));
+
+    if(ChangeSize)
+    {
+        Rect ROI(m, n, (int)( x/scale ), (int)( y/scale ));
+        Mat temp; 
+        resize(img,temp, Size(ROI.width, ROI.height));
+        temp.copyTo(DispImage(ROI));
+    }
+    else{
+        Rect ROI(m, n, (int)( x/scale ), (int)( y/scale ));
+        img.copyTo(DispImage(ROI));
+    }
     //img.copyTo(DispImage);
 }
 
 return DispImage;
 }
+/*
+#define CV_8U   0
+#define CV_8S   1 
+#define CV_16U  2
+#define CV_16S  3
+#define CV_32S  4
+#define CV_32F  5
+#define CV_64F  6
+*/
+///Useful function to get the type of MAT
+string type2str(int type) {
+  string r;
 
+  uchar depth = type & CV_MAT_DEPTH_MASK;
+  uchar chans = 1 + (type >> CV_CN_SHIFT);
+
+  switch ( depth ) {
+    case CV_8U:  r = "8U"; break;
+    case CV_8S:  r = "8S"; break;
+    case CV_16U: r = "16U"; break;
+    case CV_16S: r = "16S"; break;
+    case CV_32S: r = "32S"; break;
+    case CV_32F: r = "32F"; break;
+    case CV_64F: r = "64F"; break;
+    default:     r = "User"; break;
+  }
+  return r;
+}
