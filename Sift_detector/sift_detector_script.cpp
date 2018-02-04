@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <stdio.h>
+#include <iostream>
 #include <math.h>
 #include "opencv2/features2d.hpp"
 #include "opencv2/core.hpp"
@@ -15,15 +16,13 @@ using namespace cv;
 using namespace cv::xfeatures2d;
 
 void readme();
-void sift_detect(Mat img,std::vector<KeyPoint> &kps,  Mat& des );
-void findExtrema(std::vector<Mat> dogs,std::vector<KeyPoint> &keypoints , double OctaveID);
-void AssignOrientation(std::vector<KeyPoint> &keypoints, std::vector<Mat> blurredImgs);
+void findExtrema( std::vector<Mat> dogs,std::vector<KeyPoint> &keypoints , double OctaveID);
+void AssignOrientation( std::vector<KeyPoint> &keypoints, std::vector<Mat> blurredImgs);
 void getBlurred(Mat img ,std::vector<Mat> &blurredImgs, double k);
 void getDoGs(std::vector<Mat> blurredImgs ,std::vector<Mat> &dogs);
 bool eliminateEdgeResp(int x , int y, Mat img);
 int calculateOrientation( Mat img, Point2f k, double size);
 int arg_max(int *x, int len);
-void write_kps(Mat img,std::vector<KeyPoint> kps, int i);
 /*
  * @function main
  * @brief Main function
@@ -34,7 +33,7 @@ void write_kps(Mat img,std::vector<KeyPoint> kps, int i);
 #define COL 3
 #define SIGMA 1.6
 #define HIST_ROT_SIZE 36
-#define NB_OCTAVES 3
+ 
 
 int main( int argc, char** argv )
 {
@@ -56,11 +55,107 @@ int main( int argc, char** argv )
 /*---------------------Start of Sift--------------------------------------*/
 
 
+  std::vector<Mat> blurredImgs;           //store blurred images of first octave    ------> s+3 =6 
+  std::vector<Mat> dogs;            //store difference of gaussian images of first octave ----> s+2 = 5
   std::vector<KeyPoint> keypoints; //store the keypoints of first octave
+  //std::vector<Mat> NMSdogs;     //store features extraced from DoG      ------> s =3 
+
+  //initialize the first octave with blurring the image
+  double i = 1;
+  getBlurred(img,blurredImgs,i);
+  //apply difference of gaussian response and get the DoGs
+  getDoGs(blurredImgs, dogs);
+  //find the keypoints of the current octave
+  findExtrema(dogs , keypoints,i); 
+  AssignOrientation(keypoints,blurredImgs);
+
+  //initialize the second octave by downsampling the image with scale of 2*sigma
+  Mat img_downSampledOnce;
+  pyrDown(blurredImgs[5], img_downSampledOnce, Size( blurredImgs[5].cols/2, blurredImgs[5].rows/2 ) );
+  /*
   Mat descriptors;
-  sift_detect(img,keypoints,descriptors);
-  cout<<"Keypoints detected: "<<keypoints.size()<<endl;
+  //SurfDescriptorExtractor ext;
+  Ptr<DescriptorExtractor> descriptorExtractor = SIFT::create();
+  descriptorExtractor -> compute(blurredImgs[0],keypoints,descriptors);
   cout<<"DescriptorExtractor created with size: "<<descriptors.size()<<endl;
+*/
+
+
+
+
+  std::vector<Mat> blurredImgs1;           //store blurred images of second octave    ------> s+3 =6 
+  std::vector<Mat> dogs1;            //store difference of gaussian images of second octave ----> s+2 = 5
+  std::vector<KeyPoint> keypoints1;
+
+  i += s;
+  getBlurred(img_downSampledOnce,blurredImgs1,i);
+  //apply difference of gaussian response and get the DoGs
+  getDoGs(blurredImgs1, dogs1);
+  //find the keypoints of the current octave
+  findExtrema(dogs1 , keypoints1 , i); 
+  //imshow("downSampled image",img_downSampledOnce);
+  AssignOrientation(keypoints1,blurredImgs1);
+
+  Mat img_downSampledTwice;
+  pyrDown(blurredImgs1[5], img_downSampledTwice, Size( blurredImgs1[5].cols/2, blurredImgs1[5].rows/2 ) );
+  //imshow("downSampled image",img_downSampledTwice);
+  
+  std::vector<Mat> blurredImgs2;           //store blurred images of third octave    ------> s+3 =6 
+  std::vector<Mat> dogs2;            //store difference of gaussian images of third octave ----> s+2 = 5
+  std::vector<KeyPoint> keypoints2;
+
+  i += s;
+  getBlurred(img_downSampledTwice,blurredImgs2,i);
+  //apply difference of gaussian response and get the DoGs
+  getDoGs(blurredImgs2, dogs2);
+  //find the keypoints of the current octave
+  findExtrema(dogs2 , keypoints2, i); 
+  AssignOrientation(keypoints2,blurredImgs2);
+
+  //CAT keypoints
+  keypoints.insert(keypoints.end(),keypoints1.begin(),keypoints1.end());
+  keypoints.insert(keypoints.end(),keypoints2.begin(),keypoints2.end());
+  //find_descriptors
+  Mat descriptors;
+  //SurfDescriptorExtractor ext;
+  Ptr<DescriptorExtractor> descriptorExtractor = SIFT::create();
+  descriptorExtractor -> compute(img,keypoints,descriptors);
+  cout<<"DescriptorExtractor created with size: "<<descriptors.size()<<endl;
+
+
+  //Draw keypoints of all scales on its images
+  Mat img_keypoints;
+  drawKeypoints( img, keypoints, img_keypoints, Scalar(255,0,0), DrawMatchesFlags::DEFAULT );
+
+  Mat img_keypoints1;
+  drawKeypoints( img_downSampledOnce, keypoints1, img_keypoints1,  Scalar(255,0,0), DrawMatchesFlags::DEFAULT ) ;
+  
+  Mat img_keypoints2;
+  drawKeypoints( img_downSampledTwice, keypoints2, img_keypoints2,  Scalar(255,0,0), DrawMatchesFlags::DEFAULT ) ;
+  
+
+
+  //PLOTTING SECTION
+  //Move all images to one image for better view and plot
+  //Mat blurredSubplot = SubPlot(blurredImgs);
+  //Mat DogSubplot = SubPlot(dogs);
+  //Mat NmsSubplot = SubPlot(NMSdogs);
+  
+  //Mat blurredSubplot1 = SubPlot(blurredImgs1,0);
+
+  //imshow("DOG Images", DogSubplot);
+  //imshow("Blurred Images", blurredSubplot);
+  //imshow("Blurred Images third octave", blurredImgs2[2]);
+  //imshow("Extrema Images of first octave",img_keypoints);
+  imwrite("./first_keypoints.jpg",img_keypoints);
+  imwrite("./second_keypoints.jpg",img_keypoints1);
+  imwrite("./third_keypoints.jpg",img_keypoints2);
+
+  cout<<"number of keypoints in the first octave  "<<keypoints.size()-keypoints1.size()-keypoints2.size()<<endl;
+  cout<<"number of keypoints in the second octave "<<keypoints1.size()<<endl;
+  cout<<"number of keypoints in the third octave  "<<keypoints2.size()<<endl;
+  //imshow("Extrema Images of second octave",img_keypoints1);
+  //imshow("Extrema Images of third octave",img_keypoints2);
 
 
   waitKey(0);
@@ -78,52 +173,6 @@ void readme()
 /*
  * @functions SIFT
  */
-void sift_detect(Mat img,std::vector<KeyPoint> &kps,  Mat& des)
-{
-  double i = 1;
-  Mat img_copy = img.clone();
-  //img.copyTo(img_copy);
-  std::vector<Mat> blurredImgs;           //store blurred images of first octave    ------> s+3 =6 
-  std::vector<Mat> dogs;            //store difference of gaussian images of first octave ----> s+2 = 5
-  std::vector<KeyPoint> keypoints; //store the keypoints of first octave
-  
-  for(int j = 0 ; j < NB_OCTAVES ; j++)
-  {  
-    //initialize the octave with blurring the image
-    getBlurred(img,blurredImgs,i);
-    cout<<"img size"<<img.size()<<endl;
-    cout<<"blurred size"<<blurredImgs[0].size()<<endl;
-    //apply difference of gaussian response and get the DoGs
-    getDoGs(blurredImgs, dogs);
-    //find the keypoints of the current octave
-    cout<<"no problem after dog"<<endl;
-    findExtrema(dogs , keypoints,i);
-    cout<<"no problem after exterema"<<endl;
- 
-    AssignOrientation(keypoints,blurredImgs);
-    cout<<keypoints.size()<<endl;
-    kps.insert(kps.end(),keypoints.begin(),keypoints.end());
-
-    //initialize the second octave by downsampling the image with scale of 2*sigma    
-
-    write_kps(img_copy,keypoints,j);
-
-    pyrDown(blurredImgs[5], img, Size( blurredImgs[5].cols/2, blurredImgs[5].rows/2 ) );
-    cout<<"img size after downsampling"<<img.size()<<endl;
-    pyrDown(img_copy, img_copy, Size( img_copy.cols/2, img_copy.rows/2 ) );
-
-    i += s;
-    blurredImgs.clear();
-    dogs.clear();
-    keypoints.clear();
-  }
-
-  //Extract descriptors:
-  Ptr<DescriptorExtractor> descriptorExtractor = SIFT::create();
-  descriptorExtractor -> compute(img_copy,kps,des);
-
-  return;
-}
 void getBlurred(Mat img ,std::vector<Mat> &blurredImgs,double idx)
 {
   double i = idx;
@@ -138,7 +187,6 @@ void getBlurred(Mat img ,std::vector<Mat> &blurredImgs,double idx)
     blurredImgs.push_back(out);
   }
   assert(blurredImgs.size() == s);
-
   return;
 }
 void getDoGs(std::vector<Mat> blurredImgs ,std::vector<Mat> &dogs)
@@ -169,10 +217,10 @@ void findExtrema( std::vector<Mat> dogs ,std::vector<KeyPoint> &keypoints, doubl
   int dogsCols = dogs[0].cols;
   //std::vector<Mat> nmsDogs;
   bool ismaxima, isminima, isnon;
-  int extremaCount = 0;
+  int extremaCount;
   int k, l, kbound, lbound;  //filter indices
-  cout<<"dog size::" << dogs.size()<<endl;
-  for ( int idx = 1 ; idx < dogs.size()-1 ; idx++ )
+
+  for ( int idx = 1 ; idx < dogs.size() -1 ; idx ++ )
   {
     //Mat fill = Mat::zeros(dogs[0].size(), CV_8UC1);
 
@@ -194,15 +242,13 @@ void findExtrema( std::vector<Mat> dogs ,std::vector<KeyPoint> &keypoints, doubl
             else
             { l = -1; lbound = 2; }
             
-            
             ismaxima = false;
             isminima = false;
             isnon    = false;
-            //cout<<extremaCount++<<"rows cols "<<i<<" "<<j<<" dogrows , dogcols "<<dogsRows<<" "<<dogsCols<<endl;
-            //cout<<"entering loops"<<endl;
+            extremaCount = 0;
             for( ; k < kbound ; k++ )
             {
-                for( ; l < lbound; l++ )
+                for(; l < lbound; l++ )
                 {
                 //Compare each dog image idx with image idx -1 and idx +1 and its neighbor
                   if(k == 0 && l==0)
@@ -233,22 +279,16 @@ void findExtrema( std::vector<Mat> dogs ,std::vector<KeyPoint> &keypoints, doubl
                     else isnon = true;
                  } 
                 }
-                //cout<<"pos1"<<endl;
-                if(!(ismaxima ^ isminima) || isnon) break;
-                //scout<<"pos2"<<endl;
+                if(!(ismaxima ^ isminima) ||isnon) break;
                 //cout<<"extremaCount : "<<extremaCount<<endl;
 
             }
-
-            //cout<<"exiting loops"<<endl;
             //if(std::abs(extremaCount)==8 && eliminateEdgeResp(i,j,dogs[idx]))  //Require one of them to be true only, If both are true the point is neither
             //cout<<extremaCount<<endl;           
             if((ismaxima ^ isminima) && !isnon && eliminateEdgeResp(i,j,dogs[idx]))  //Require one of them to be true only, If both are true the point is neither            
             {  //fill.at<uchar>(Point(i, j)) = 255; 
                KeyPoint K(i,j,pow(2,(idx+OctaveID)/s),-1,0,(int) OctaveID/s,idx); //KeyPoint(x,y,size,angle,response,octave,class_id)
-               //cout<<"start!!"<<endl;
                keypoints.push_back(K);
-               //cout<<"here!"<<endl;
             }
               
        }
@@ -394,23 +434,6 @@ int arg_max(int *x, int len){
       max_idx = i;
   }
   return max_idx;
-}
-
-void write_kps(Mat img,std::vector<KeyPoint> kps, int i)
-{
-  cout<<"number of keypoints in octave "<<i<<": "<<kps.size()<<endl;
-  Mat img_keypoints;
-  drawKeypoints( img, kps, img_keypoints,  Scalar(255,0,0), DrawMatchesFlags::DEFAULT);
-    if(i==0)
-      imwrite("./first_keypoints.jpg",img_keypoints);
-    else if (i==1)
-      imwrite("./second_keypoints.jpg",img_keypoints);
-    else if (i==2)
-      imwrite("./third_keypoints.jpg",img_keypoints);
-    else if (i==3)
-      imwrite("./fourth_keypoints.jpg",img_keypoints);
-    else if (i==4)
-      imwrite("./fifth_keypoints.jpg",img_keypoints);
 }
 
 /*

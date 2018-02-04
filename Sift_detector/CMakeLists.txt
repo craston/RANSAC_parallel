@@ -8,3 +8,6 @@ endif()
 find_package( OpenCV REQUIRED )
 add_executable( sift_detector sift_detector.cpp )
 target_link_libraries( sift_detector ${OpenCV_LIBS})
+
+add_executable( sift_detector_script sift_detector_script.cpp )
+target_link_libraries( sift_detector_script ${OpenCV_LIBS})
