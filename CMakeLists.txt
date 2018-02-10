@@ -20,6 +20,11 @@ target_link_libraries( feature_matcher_sift_parallel ${OpenCV_LIBS} )
 add_executable(feature_matcher_sift_mpi feature_matcher_sift_mpi.cpp )
 target_link_libraries( feature_matcher_sift_mpi ${OpenCV_LIBS} ${MPI_LIBRARIES})
 
+
+add_executable(mpi_trial mpi_trial.cpp )
+target_link_libraries( mpi_trial ${MPI_LIBRARIES})
+
+
 if(MPI_COMPILE_FLAGS)
 	set_target_properties(feature_matcher_sift_mpi PROPERTIES COMPILE_FLAGS "${MPI_COMPILE_FLAGS}")
 endif()
@@ -28,5 +33,12 @@ if(MPI_LINK_FLAGS)
 	set_target_properties(feature_matcher_sift_mpi PROPERTIES LINK_FLAGS "${MPI_LINK_FLAGS}")
 endif()
 
+if(MPI_COMPILE_FLAGS)
+	set_target_properties(mpi_trial PROPERTIES COMPILE_FLAGS "${MPI_COMPILE_FLAGS}")
+endif()
+
+if(MPI_LINK_FLAGS)
+	set_target_properties(mpi_trial PROPERTIES LINK_FLAGS "${MPI_LINK_FLAGS}")
+endif()
 
 

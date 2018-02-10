@@ -11,7 +11,6 @@
 #include "opencv2/opencv.hpp"
 #include "omp.h"
 #include <random>
-
 #define nb_experiments 1
 
 using namespace std;
@@ -109,12 +108,14 @@ int main( int argc, char** argv ){
 	std::vector<Point3f> src_vec, dst_vec;
 	std::vector<int> rand_idx_src, rand_idx_dst;
 	int num;
+	// srand(1);
 
 	for(int k = 0; k< 1000; k++){
 		rand_idx_src.clear();
 		rand_idx_dst.clear();
 		for(int j = 0; j<3; j++){
 			do{
+
 				num = rand()%N;
 				/*
 				std::random_device rd;
