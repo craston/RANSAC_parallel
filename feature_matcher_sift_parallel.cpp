@@ -27,7 +27,8 @@ struct time_best
 void readme();
 bool contains(vector<int> rand_idx, int num);
 float distance(float x1, float y1, float x2, float y2);
-time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, std::vector<Point3f> dst_vec, std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches);
+time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, 
+	std::vector<Point3f> dst_vec, std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches);
 
 int main( int argc, char** argv ){
 	if( argc != 3 ){ 
@@ -170,7 +171,8 @@ int main( int argc, char** argv ){
 
 }
 
-time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, std::vector<Point3f> dst_vec, std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches){
+time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, std::vector<Point3f> dst_vec, 
+	std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches){
 
   	// --- RANSAC Algorithm Serial
 	int N = (int)good_matches.size();
@@ -192,12 +194,15 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 		dst_random.clear();
 		outliers = 0;
 
+		//src_vec and dst_vec are shared between threads
 		#pragma omp critical
-		for(j = 0; j<3; j++){
-		  src_random.push_back(src_vec.back());
-		  src_vec.pop_back();
-		  dst_random.push_back(dst_vec.back());
-		  dst_vec.pop_back();
+		{
+			for(j = 0; j<3; j++){
+			  src_random.push_back(src_vec.back());
+			  src_vec.pop_back();
+			  dst_random.push_back(dst_vec.back());
+			  dst_vec.pop_back();
+			}
 		}
 		//cout<<"Thread number "<< omp_get_thread_num()<<" " <<rand_idx_src[0]<<", "<<rand_idx_src[1]<<", "<<rand_idx_src[2]<<endl<<flush;
 
