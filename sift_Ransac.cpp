@@ -11,7 +11,6 @@
 #include "SubplotImgs.hpp"
 #include "omp.h"
 #include "mpi.h"
-#include <chrono>
 
 using namespace std;
 using namespace cv;
@@ -29,6 +28,12 @@ int calculateOrientation( Mat img, Point2f k, double size);
 int arg_max(int *x, int len);
 void write_kps(Mat img,std::vector<KeyPoint> kps, int i);
 void buff_to_kp(void *buff, std::vector<KeyPoint> &kp);
+void match( Mat descriptors_1 , Mat descriptors_2 , std::vector< DMatch > &good_matches);
+bool contains(vector<int> rand_idx, int num);
+float distance(float x1, float y1, float x2, float y2);
+time_best RANSAC_parallel(std::vector<Point3f> src_vec, std::vector<Point3f> dst_vec, 
+    std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch_new> good_matches, int chunk_size);
+
 /*
  * @function main
  * @brief Main function
@@ -42,11 +47,19 @@ void buff_to_kp(void *buff, std::vector<KeyPoint> &kp);
 int NB_OCTAVES;
 
 
-typedef struct image_info {
-        int rows;
-        int cols;
-        unsigned char *data;
-} image;
+
+struct DMatch_new{
+  int queryIdx;
+  int trainIdx;
+  float distance;
+};
+
+struct time_best
+{
+    double time;
+    int outliers;
+    std::vector< DMatch_new > best_matches;
+};
 
 typedef struct keypoint_info {
         int x;
@@ -70,16 +83,18 @@ int main( int argc, char** argv )
 
 /*-----------------------Read Image---------------------------------------*/
 
-  if( argc != 2 )
+  if( argc != 3 )
   { 
     readme();
     return -1; 
   }
 
-  Mat img = imread( argv[1], IMREAD_GRAYSCALE );
-  //img.convertTo(img,CV_32S);
+  Mat img1 = imread( argv[1], IMREAD_GRAYSCALE );
+
+  Mat img2 = imread( argv[2], IMREAD_GRAYSCALE );
+
   
-  if( !img.data)
+  if( !img1.data || !img2.data)
   { 
     std::cout<< " --(!) Error reading image " << std::endl; return -1; 
   }
@@ -87,6 +102,50 @@ int main( int argc, char** argv )
 /*----------------Create Keypoints vector dataType to send between proc----------------*/
 
   //create vector cast
+  //float start_time = omp_get_wtime();
+  std::vector<KeyPoint> keypoints1 , keypoints2;
+  Mat descriptors1 ,descriptors2;
+  sift_detect_full(img,keypoints1);
+  sift_detect_full(img,keypoints2);
+//float run_time = omp_get_wtime() - start_time;
+
+  if(rank==0)
+  {
+    //Extract descriptors:
+    Ptr<DescriptorExtractor> descriptorExtractor = SIFT::create();
+    descriptorExtractor -> compute(img1,keypoints1,descriptors1);
+    descriptorExtractor -> compute(img1,keypoints2,descriptors2);
+  }
+
+  if(rank==0)
+  {
+    cout<<"Final Keypoints detected: "<<keypoints1.size()<<endl;
+    cout<<"DescriptorExtractor created with size: "<<descriptor1.size()<<endl;
+    cout<<"Final Keypoints detected: "<<keypoints2.size()<<endl;
+    cout<<"DescriptorExtractor created with size: "<<descriptor2.size()<<endl;
+  }
+  /*------match----*/
+  std::vector< DMatch > good_matches;
+  match(descriptor1,descriptors2,good_matches);
+  MPI_Finalize();
+
+  waitKey(0);
+  return 0;
+}
+
+/*
+ * @function readme
+ */
+
+void readme()
+{ 
+  std::cout << " Usage: ./sift_detector <img1>  IMG missing " << std::endl; 
+}
+/*
+ * @functions SIFT
+ */
+void sift_detect_full(Mat img, std::vector<KeyPoint> &keypoints)
+{
   MPI_Datatype types[5] = {MPI_INT, MPI_INT, MPI_FLOAT, MPI_INT, MPI_INT};
   MPI_Datatype mpi_kp_type;
   MPI_Datatype mpi_kp_vector; 
@@ -106,14 +165,11 @@ int main( int argc, char** argv )
   MPI_Type_vector(2000,1,0,mpi_kp_type,&mpi_kp_vector);
   MPI_Type_commit(&mpi_kp_vector);
 
-  std::vector<KeyPoint> keypoints; //store the keypoints of first octave
-  Mat descriptors;
-  high_resolution_clock::time_point t1 = high_resolution_clock::now();
+  //std::vector<KeyPoint> keypoints; //store the keypoints of first octave
 
 /*-----------------------Start of Sift Process with MPI---------------------------------------*/
 
 
-  float start_time = omp_get_wtime();
   if(rank > 0)
   {
     for (int i = 0; i< rank ; i++)
@@ -156,47 +212,10 @@ int main( int argc, char** argv )
       buff_to_kp(rbuff, keypoints);
     }
   }
+
+  //printf("RunTime walltime: %f \n",run_time);
   
-  ///timeit
-  float run_time = omp_get_wtime() - start_time;
-  high_resolution_clock::time_point t2 = high_resolution_clock::now();
-  auto duration = duration_cast<microseconds>( t2 - t1 ).count();
-
-  /*if(rank==0)
-  {
-    //Extract descriptors:
-    Ptr<DescriptorExtractor> descriptorExtractor = SIFT::create();
-    descriptorExtractor -> compute(img,keypoints,descriptors);
-
-  }*/
-
-  printf("RunTime walltime: %f \n",run_time);
-  printf("RunTime chrono: %f \n",duration/1000000.0);
-  
-
-  MPI_Finalize();
-  if(rank==0)
-  cout<<"Final Keypoints detected: "<<keypoints.size()<<endl;
-  if(rank==0)
-  cout<<"DescriptorExtractor created with size: "<<descriptors.size()<<endl;
-
-
-
-  waitKey(0);
-  return 0;
 }
-
-/*
- * @function readme
- */
-
-void readme()
-{ 
-  std::cout << " Usage: ./sift_detector <img1>  IMG missing " << std::endl; 
-}
-/*
- * @functions SIFT
- */
 void sift_detect(Mat img,std::vector<KeyPoint> &kps)
 {
   int rank;
@@ -515,76 +534,278 @@ void buff_to_kp(void *rbuff, std::vector<KeyPoint> &kp)
     kp.push_back(K);
   }
 }
-/*
-Scalar p = img.at<uchar>(Point(i, j));                   //Returns a vector of values 
-Scalar(img.at<uchar>(Point(i, j))).val[0]; || p.val[0]  //Returnd a value of GrayScale pixel
-fill.at<uchar>(Point(i, j)) = color;*/                 //Assign a color to point i,j
-/*double min , max ; 
-cv::minMaxLoc(dogs[2],&min,&max);
-*/
-//calculateOrientation
-  /*int zero = 0;
-  Mat gaussian = getGaussianKernel(64,1.5*size);
-  for (int j = 0 ; j< gaussian.rows;j++)
-  for(int i = 0 ; i < gaussian.cols ; i++)
-  {   
-      if(Scalar(gaussian.at<uchar>(Point(j,i))).val[0] != 0)
-        {
-          zero++;
+/*--------------------------------------------RANSAC MATCHING MPART-------------------------*/
+
+
+void match( Mat descriptors_1 , Mat descriptors_2 , std::vector< DMatch > &good_matches,)
+{  
+  int my_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+
+  if(my_rank == 0){
+    FlannBasedMatcher matcher;
+    std::vector< DMatch > matches;
+    matcher.match( descriptors_1, descriptors_2, matches );
+    double max_dist = 0; double min_dist = 100;
+    
+    //-- Quick calculation of max and min distances between keypoints
+    for( int i = 0; i < descriptors_1.rows; i++ ){ 
+      double dist = matches[i].distance;
+      if( dist < min_dist ) min_dist = dist;
+      if( dist > max_dist ) max_dist = dist;
+    }
+    printf("-- Max dist : %f \n", max_dist );
+    printf("-- Min dist : %f \n", min_dist );
+
+    for( int i = 0; i < descriptors_1.rows; i++ ){ 
+      if( matches[i].distance <= max(6*min_dist, 0.02) ){ 
+          good_matches.push_back( matches[i]); 
+      }
+    }
+
+    cout<<"Number of  matches : "<<(int)matches.size()<<endl;
+    cout<<"Number of Good matches : "<<(int)good_matches.size()<<endl;
+
+
+    std::vector<Point3f> src_pts, dst_pts;
+    Point3f temp;
+    N = (int)good_matches.size();
+
+    for( int i = 0; i < N; i++ ){
+        temp.x = keypoints_1[good_matches[i].queryIdx].pt.x;
+        temp.y = keypoints_1[good_matches[i].queryIdx].pt.y;
+        temp.z = 1;
+        src_pts.push_back(temp);
+
+        temp.x = keypoints_2[good_matches[i].trainIdx].pt.x;
+        temp.y = keypoints_2[good_matches[i].trainIdx].pt.y;
+        dst_pts.push_back(temp);
+        //printf("Source points = [%f,%f,%f]\n", src_pts[i].x, src_pts[i].y, src_pts[i].z);
+    }
+
+    std::vector<Point3f> src_vec, dst_vec;
+    std::vector<int> rand_idx_src, rand_idx_dst;
+    int num;
+        // srand(1);
+
+    for(int k = 0; k< atoi(argv[3]); k++){
+        rand_idx_src.clear();
+        rand_idx_dst.clear();
+        for(int j = 0; j<3; j++){
+            do{
+                num = rand()%N;
+            }while (contains(rand_idx_src, num));
+
+            rand_idx_src.push_back(num);
+            src_vec.push_back(src_pts[num]);
+            //cout<<"source random index ["<<j<<"]:"<< num << endl;
+
+            do{
+                num = rand()%N;
+            }while (contains(rand_idx_dst, num));
+
+            rand_idx_dst.push_back(num);
+            dst_vec.push_back(dst_pts[num]);
+            //cout<<"destination random index ["<<j<<"]:"<< num << endl;
+        }
+    }
+
+        //Process 0 will now divide the src and dst vector and points of good matches between all the process
+    //Converting vectors to arrays before broadcasting
+    Point3f *src_vec_a = &src_vec[0];
+    Point3f *dst_vec_a = &dst_vec[0];
+    Point3f *src_pts_a = &src_pts[0];
+    Point3f *dst_pts_a = &dst_pts[0];
+    int i,j;
+    
+    DMatch_new good_matches_struct[N];
+    for( int i = 0; i < N; i++){
+      good_matches_struct[i].queryIdx = good_matches[i].queryIdx;
+      good_matches_struct[i].trainIdx = good_matches[i].trainIdx;
+      good_matches_struct[i].distance = good_matches[i].distance;         
+    }
+    
+    cout<<"my_rank = "<<my_rank<<" src_vec = "<<src_vec_a[0].x<<endl<<std::flush;
+
+    for(i = 0; i<world_size-1; i++){
+      MPI_Send(&src_vec_a[i*chunk_size], chunk_size, Point3f_type, i+1, 0, MPI_COMM_WORLD);
+      MPI_Send(&dst_vec_a[i*chunk_size], chunk_size, Point3f_type, i+1, 1, MPI_COMM_WORLD);
+      // MPI_Send(&src_pts_a[i*chunk_size], chunk_size, Point3f_type, i+1, 2, MPI_COMM_WORLD);
+      // MPI_Send(&dst_pts_a[i*chunk_size], chunk_size, Point3f_type, i+1, 3, MPI_COMM_WORLD);
+      MPI_Send(&N, 1, MPI_INT, i+1, 99, MPI_COMM_WORLD);
+
+      MPI_Send(&src_pts_a[0], N, Point3f_type, i+1, 2, MPI_COMM_WORLD);
+      MPI_Send(&dst_pts_a[0], N, Point3f_type, i+1, 3, MPI_COMM_WORLD);
+      
+      MPI_Send(&good_matches_struct[0], N, DMatch_type, i+1, 100, MPI_COMM_WORLD);
+    }
+    }
+    else{
+        time = 0;
+        Point3f src_vec_a[chunk_size], dst_vec_a[chunk_size];
+        MPI_Recv(&(src_vec_a[0]), chunk_size, Point3f_type, 0, 0, MPI_COMM_WORLD, &status);
+        MPI_Recv(&(dst_vec_a[0]), chunk_size, Point3f_type, 0, 1, MPI_COMM_WORLD, &status);
+        cout<<"my_rank = "<<my_rank<<" src_vec = "<<src_vec_a[0].x<<endl<<std::flush;
+
+        int N;
+        MPI_Recv(&N, 1, MPI_INT, 0, 99, MPI_COMM_WORLD, &status);
+        cout<<"my_rank = "<<my_rank<<" sizeBcast = "<<N<<endl<<std::flush;
+
+        Point3f src_pts_a[N], dst_pts_a[N];
+        MPI_Recv(&(src_pts_a[0]), N, Point3f_type, 0, 2, MPI_COMM_WORLD, &status);
+        MPI_Recv(&(dst_pts_a[0]), N, Point3f_type, 0, 3, MPI_COMM_WORLD, &status);
+        cout<<"my_rank = "<<my_rank<<" src_pts = "<<src_pts_a[0].x<<endl<<std::flush;
+
+        DMatch_new good_matches_struct[N];
+        MPI_Recv(&(good_matches_struct[0]), N, DMatch_type, 0, 100, MPI_COMM_WORLD, &status);
+        cout<<"my_rank = "<<my_rank<<" good_matches = "<<good_matches_struct[0].queryIdx<<endl<<std::flush;
+
+        std::vector<Point3f> src_vec_new(src_vec_a, src_vec_a + sizeof(src_vec_a)/sizeof(src_vec_a[0]));
+        std::vector<Point3f> dst_vec_new(dst_vec_a, dst_vec_a + sizeof(dst_vec_a)/sizeof(dst_vec_a[0]));
+        std::vector<Point3f> src_pts_new(src_pts_a, src_pts_a + sizeof(src_pts_a)/sizeof(src_pts_a[0]));
+        std::vector<Point3f> dst_pts_new(dst_pts_a, dst_pts_a + sizeof(dst_pts_a)/sizeof(dst_pts_a[0]));
+        std::vector<DMatch_new> good_matches_new(good_matches_struct, good_matches_struct + sizeof(good_matches_struct)/sizeof(good_matches_struct[0]));
+        printf("MY rank %d\n", my_rank);
+
+        result = RANSAC_parallel(src_vec_new, dst_vec_new, src_pts_new, dst_pts_new, good_matches_new, chunk_size);
+        printf("Rank : %d, time = %f, outliers = %d\n", my_rank, result.time, result.outliers);
+
+        
+    }
+    MPI_Gather(&result.outliers, 1, MPI_INT, outliers_collect, 1, MPI_INT, 0, MPI_COMM_WORLD); 
+    int min;
+    int proc_idx;
+    if(my_rank == 0 ){
+      min = INT_MAX;
+      for(int i = 1; i< world_size; i ++){
+        printf("List of outlier = %d \n",outliers_collect[i]);
+        if (outliers_collect[i]<min){
+          min = outliers_collect[i];
+          proc_idx = i;
+        }
+      }
+      printf("mininum = %d , %d\n", proc_idx, min );
+    }
+    MPI_Bcast(&proc_idx, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&N, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    // MPI_Barrier(MPI_COMM_WORLD);
+    printf("%d mininum = %d , %d\n", my_rank, proc_idx, min );
+    if(my_rank == proc_idx){
+      DMatch_new *Final_matches = &(result.best_matches[0]);
+      cout<<N<<" "<<my_rank<<endl<<std::flush;
+
+      MPI_Send(&Final_matches[0], N, DMatch_type, 0, 200, MPI_COMM_WORLD);
+    }
+
+    if(my_rank == 0){
+      cout<<N<<" "<<my_rank<<endl<<std::flush;
+      DMatch_new Final_matches[N];
+      MPI_Recv(&Final_matches[0], N, DMatch_type, proc_idx, 200, MPI_COMM_WORLD, &status);
+      //Checking for serial and parallel implementation
+
+      DMatch match_to_display[N-min];
+      int j = 0;
+      for(int i = 0; i < N; i++){
+        if(Final_matches[i].queryIdx !=0 && Final_matches[i].trainIdx != 0 && Final_matches[i].distance != 0){
+          match_to_display[j].queryIdx = Final_matches[i].queryIdx ;
+          match_to_display[j].trainIdx = Final_matches[i].trainIdx ;
+          match_to_display[j].distance = Final_matches[i].distance ;
+          j++;
         }
 
+      }
+      std::vector<DMatch> display_points(match_to_display, match_to_display + sizeof(match_to_display)/sizeof(match_to_display[0]));
+      printf("Length of final matches = %d\n", N-min);
+      // for(int i = 0; i < 5; i++){
+      //     cout<<keypoints_1[match_to_display[i].queryIdx].pt.x<<endl;
+      // }
+      //drawMatches( img_1, keypoints_1, img_2, keypoints_2, display_points, img_matches, Scalar::all(-1), Scalar::all(-1),vector<char>(), 
+       // DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+   
+      //imwrite("Result_mpi.jpg", img_matches);
+}
 
-  }
-  imwrite("./gaussiankernal.jpg",gaussian);
-  cout<<"non zeros:  "<<zero<<"  newline"<<endl;
-  //cout<<"Size of kernal: "<<gaussian.size<<"\trows: "<<gaussian.rows<<"\tcols: "<<gaussian.cols<<endl;
-  */
+time_best RANSAC_parallel(std::vector<Point3f> src_vec, std::vector<Point3f> dst_vec, 
+    std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch_new> good_matches, int chunk_size){
 
-/*MPI_IMAGE_TYPE
-  MPI_Datatype types[3] = {MPI_INT, MPI_INT, MPI_UNSIGNED_CHAR};
-  MPI_Datatype mpi_img_type;
-  MPI_Aint     offsets[3];
-  int blocklengths[3] = {1,1,img.rows*img.cols};
+    // --- RANSAC Algorithm Serial
+    int N = (int)good_matches.size();
+    cout<<"good_matches size = "<<N<<endl<<std::flush;
+    cout<<"src_vec size = "<<(int)src_vec.size()<<endl<<std::flush;
+    std::vector<Point3f> src_random, dst_random;
+    int outliers;
+    int past_outliers = N +1;
+    std::vector<int> idx_remove, Best_idx_remove;
+    std::vector< DMatch_new > best_matches = good_matches;
+    Mat H;
 
-  offsets[0] = offsetof(image, rows);
-  offsets[1] = offsetof(image, cols);
-  offsets[2] = offsetof(image, data);
+    register unsigned int i,j,k;
+    double start_time = omp_get_wtime();
 
-  MPI_Type_create_struct(3, blocklengths, offsets, types, &mpi_img_type);
-  MPI_Type_commit(&mpi_img_type);
+    #pragma omp parallel for schedule(dynamic) private(i, j, k, idx_remove, H, src_random, dst_random, outliers)
+    for(k =0; k < chunk_size/3; k++){
+        idx_remove.clear();
+        src_random.clear();
+        dst_random.clear();
+        outliers = 0;
 
-  for (int i = 0 ; i < numTasks ; i++)
-  {
-    if (rank == 0)
-    {
-      image bcast_image;
-      bcast_image.rows = img.rows;
-      bcast_image.cols = img.cols;
-      bcast_image.data = img.data;
+        #pragma omp critical
+        {
+            for(j = 0; j<3; j++){
+              // printf("hi");
+                src_random.push_back(src_vec.back());
+                src_vec.pop_back();
+                dst_random.push_back(dst_vec.back());
+                dst_vec.pop_back();
+            }
+        }
+        // printf("hi1");
+        H = findHomography(src_random, dst_random);
+        // printf("hi2");
+        for(i = 0 ; i < N ; i++){
+            Point2f temp2;
+            temp2.x = H.at<double>(0,0)*src_pts[i].x + H.at<double>(0,1)*src_pts[i].y + H.at<double>(0,2)*src_pts[i].z;
+            temp2.y = H.at<double>(1,0)*src_pts[i].x + H.at<double>(1,1)*src_pts[i].y + H.at<double>(1,2)*src_pts[i].z;
 
-      MPI_Bcast(&bcast_image,3, mpi_img_type,0, MPI_COMM_WORLD);
+            // cout<<distance(temp2.x, temp2.y, dst_pts[i].x, dst_pts[i].y )<<endl<<std::flush;
+            if(distance(temp2.x, temp2.y, dst_pts[i].x, dst_pts[i].y )> 100){
+                outliers += 1;
+                idx_remove.push_back(i);
+            }
+        }
+        // cout<<"Number of outliers: "<< outliers<<endl<<flush;
+        #pragma omp critical
+        { 
+          // cout<<k<<endl;
+            if(outliers < past_outliers){
+                cout<<"pid "<<getpid()<<" Thread number "<< omp_get_thread_num()<<" iteration["<<k<<"]: "<<outliers<<endl<<flush;
+                past_outliers = outliers; 
+                Best_idx_remove = idx_remove;
+            }
+        }
+    } 
+
+    double run_time = omp_get_wtime() - start_time;
+    for(int i =0; i< (int)Best_idx_remove.size(); i++){
+         best_matches[Best_idx_remove[i]].queryIdx = 0;
+         best_matches[Best_idx_remove[i]].trainIdx = 0;
+         best_matches[Best_idx_remove[i]].distance = 0.0;
     }
-    else
-    {
-      MPI_Status status;
-      int src = 0;
-      image recv;
 
-      MPI_Recv(&recv,   1, mpi_img_type, src, -1, MPI_COMM_WORLD, &status);
-      printf("Rank %d: Received: cols = %d rows = %d\n", rank, recv.rows,
-               recv.cols);
-    }
-  }
-  */
+    time_best result;
+    result.time = run_time;
+    result.outliers = past_outliers;
+    result.best_matches = best_matches;
 
- /*
-  int displs[numTasks];
-  int recvcounts[numTasks];
-  for (int i = 0 ; i < numTasks ; i++)
-  {
-    displs[i] = i*2000;
-    recvcounts[i] = 2000;
-  }
-  //MPI_Gatherv(kps,keypoints.size(), mpi_kp_vector, rbuf, recvcounts, displs, mpi_kp_vector, 0, MPI_COMM_WORLD); 
-  //MPI_Gather(kps,keypoints.size(), mpi_kp_vector, rbuf, 2000, mpi_kp_vector, 0, MPI_COMM_WORLD); 
-  */
+    return result;
+}
+/*
+ * @function contains
+ */
+bool contains(std::vector<int> rand_idx, int num){
+    return std::find(rand_idx.begin(), rand_idx.end(), num) != rand_idx.end();
+}
+
+float distance(float x1, float y1, float x2, float y2){
+    return(sqrt(pow(x1 - x2, 2) + pow(y1 - y2,2)));
+}

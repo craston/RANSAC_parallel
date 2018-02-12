@@ -196,6 +196,7 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 		outliers = 0;
 
 		//src_vec and dst_vec are shared between threads
+		double start_time_critical = omp_get_wtime();
 		#pragma omp critical
 		{
 			for(j = 0; j<4; j++){
@@ -205,7 +206,7 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 			  dst_vec.pop_back();
 			}
 		}
-		//cout<<"Thread number "<< omp_get_thread_num()<<" " <<rand_idx_src[0]<<", "<<rand_idx_src[1]<<", "<<rand_idx_src[2]<<endl<<flush;
+		// cout<<"Thread number "<< omp_get_thread_num()<<" " <<omp_get_wtime() - start_time_critical<<endl<<flush;
 
 		H = findHomography(src_random, dst_random);
 		
@@ -221,14 +222,16 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 			}
 		}
 		//cout<<"Number of outliers: "<< outliers<<endl<<flush;
+		double start_time_critical2 = omp_get_wtime();
 		#pragma omp critical
 		{
 		  	if(outliers < past_outliers){
-			    cout<<"Thread number "<< omp_get_thread_num()<<" iteration["<<k<<"]: "<<outliers<<endl<<flush;
+			    // cout<<"Thread number "<< omp_get_thread_num()<<" iteration["<<k<<"]: "<<outliers<<endl<<flush;
 			    past_outliers = outliers;
 			    Best_idx_remove = idx_remove;
 		  	}
 		}
+		// cout<<"Thread number "<< omp_get_thread_num()<<" " <<omp_get_wtime() - start_time_critical2<<endl<<flush;
 	} 
 
 	double run_time = omp_get_wtime() - start_time;
