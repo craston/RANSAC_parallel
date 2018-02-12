@@ -11,7 +11,7 @@
 #include "opencv2/opencv.hpp"
 #include "omp.h"
 #include <random>
-#define nb_experiments 1
+#define nb_experiments 5
 
 using namespace std;
 using namespace cv;
@@ -27,10 +27,10 @@ void readme();
 bool contains(vector<int> rand_idx, int num);
 float distance(float x1, float y1, float x2, float y2);
 time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, 
-	std::vector<Point3f> dst_vec, std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches);
+	std::vector<Point3f> dst_vec, std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches, int ITER);
 
 int main( int argc, char** argv ){
-	if( argc != 3 ){ 
+	if( argc != 5 ){ 
 		readme();
 		return -1; 
 	}
@@ -54,7 +54,7 @@ int main( int argc, char** argv ){
 	std::vector< DMatch > matches;
 	matcher.match( descriptors_1, descriptors_2, matches );
 	double max_dist = 0; double min_dist = 100;
-	
+	      
 	//-- Quick calculation of max and min distances between keypoints
 	for( int i = 0; i < descriptors_1.rows; i++ ){ 
 		double dist = matches[i].distance;
@@ -70,7 +70,7 @@ int main( int argc, char** argv ){
 	//-- PS.- radiusMatch can also be used here.
 	std::vector< DMatch > good_matches;
 	for( int i = 0; i < descriptors_1.rows; i++ ){ 
-		if( matches[i].distance <= max(6*min_dist, 0.02) ){ 
+		if( matches[i].distance <= max(atoi(argv[4])*min_dist, 0.02) ){ 
 	  		good_matches.push_back( matches[i]); 
 		}
 	}
@@ -110,10 +110,10 @@ int main( int argc, char** argv ){
 	int num;
 	// srand(1);
 
-	for(int k = 0; k< 1000; k++){
+	for(int k = 0; k< atoi(argv[3]); k++){
 		rand_idx_src.clear();
 		rand_idx_dst.clear();
-		for(int j = 0; j<3; j++){
+		for(int j = 0; j<4; j++){
 			do{
 
 				num = rand()%N;
@@ -149,7 +149,7 @@ int main( int argc, char** argv ){
 	time_best result;
 	//RUNNING EXPERIMENTS
 	for(int i = 0; i<nb_experiments; i++){
-		result = RANSAC_parallel(img_1, img_2, src_vec, dst_vec, src_pts, dst_pts, good_matches);
+		result = RANSAC_parallel(img_1, img_2, src_vec, dst_vec, src_pts, dst_pts, good_matches, atoi(argv[3]));
 		time += result.time;
 	}
 	printf("Average time = %f\n", time/nb_experiments);
@@ -173,7 +173,7 @@ int main( int argc, char** argv ){
 }
 
 time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, std::vector<Point3f> dst_vec, 
-	std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches){
+	std::vector<Point3f> src_pts, std::vector<Point3f> dst_pts, std::vector<DMatch> good_matches, int ITER){
 
   	// --- RANSAC Algorithm Serial
 	int N = (int)good_matches.size();
@@ -189,7 +189,7 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 
 	#pragma omp parallel for schedule(dynamic) private(i, j, k, idx_remove, H, src_random, dst_random, outliers)
 
-	for(k =0; k<1000; k++){
+	for(k =0; k<ITER; k++){
 		idx_remove.clear();
 		src_random.clear();
 		dst_random.clear();
@@ -198,7 +198,7 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 		//src_vec and dst_vec are shared between threads
 		#pragma omp critical
 		{
-			for(j = 0; j<3; j++){
+			for(j = 0; j<4; j++){
 			  src_random.push_back(src_vec.back());
 			  src_vec.pop_back();
 			  dst_random.push_back(dst_vec.back());
