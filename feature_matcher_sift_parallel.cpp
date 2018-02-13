@@ -187,7 +187,7 @@ time_best RANSAC_parallel(Mat img_1, Mat img_2, std::vector<Point3f> src_vec, st
 	register unsigned int i,j,k;
 	double start_time = omp_get_wtime();
 
-	#pragma omp parallel for schedule(dynamic) private(i, j, k, idx_remove, H, src_random, dst_random, outliers)
+	#pragma omp parallel for schedule(static) private(i, j, k, idx_remove, H, src_random, dst_random, outliers)
 
 	for(k =0; k<ITER; k++){
 		idx_remove.clear();

@@ -96,11 +96,12 @@ int main( int argc, char** argv ){
 	MPI_Type_commit(&DMatch_type);
 
     double time = 0;
+    double starttime, endtime;
     time_best result;
     std::vector<KeyPoint> keypoints_1, keypoints_2;
     std::vector< DMatch > good_matches;
     Mat img_1, img_2, img_matches;
-    int chunk_size = 3*atoi(argv[3])/(world_size - 1);
+    int chunk_size = 4*atoi(argv[3])/(world_size - 1);
     std::vector< DMatch > matches;
     int outliers_collect[world_size];
     int N;
@@ -146,10 +147,10 @@ int main( int argc, char** argv ){
 		}
 
 		//-- Draw only "good" matches
-		drawMatches( img_1, keypoints_1, img_2, keypoints_2, good_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
-		           vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
-		//-- Show detected matches
-		imshow( "Good Matches", img_matches );
+		// drawMatches( img_1, keypoints_1, img_2, keypoints_2, good_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
+		//            vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+		// //-- Show detected matches
+		// imshow( "Good Matches", img_matches );
 
 		cout<<"Number of  matches : "<<(int)matches.size()<<endl;
 		cout<<"Number of Good matches : "<<(int)good_matches.size()<<endl;
@@ -179,7 +180,7 @@ int main( int argc, char** argv ){
         for(int k = 0; k< atoi(argv[3]); k++){
             rand_idx_src.clear();
             rand_idx_dst.clear();
-            for(int j = 0; j<3; j++){
+            for(int j = 0; j<4; j++){
                 do{
                     num = rand()%N;
                 }while (contains(rand_idx_src, num));
@@ -215,6 +216,8 @@ int main( int argc, char** argv ){
     
 		cout<<"my_rank = "<<my_rank<<" src_vec = "<<src_vec_a[0].x<<endl<<std::flush;
 
+		starttime = MPI_Wtime();
+		double msg_ssend_time = starttime;
 		for(i = 0; i<world_size-1; i++){
 			MPI_Send(&src_vec_a[i*chunk_size], chunk_size, Point3f_type, i+1, 0, MPI_COMM_WORLD);
 			MPI_Send(&dst_vec_a[i*chunk_size], chunk_size, Point3f_type, i+1, 1, MPI_COMM_WORLD);
@@ -227,6 +230,8 @@ int main( int argc, char** argv ){
 			
 			MPI_Send(&good_matches_struct[0], N, DMatch_type, i+1, 100, MPI_COMM_WORLD);
 		}
+		double msg_esend_time = MPI_Wtime();
+		cout<<"Time to send vector = "<< msg_esend_time- msg_ssend_time << endl;
     }
     else{
         time = 0;
@@ -277,18 +282,22 @@ int main( int argc, char** argv ){
    	MPI_Bcast(&proc_idx, 1, MPI_INT, 0, MPI_COMM_WORLD);
    	MPI_Bcast(&N, 1, MPI_INT, 0, MPI_COMM_WORLD);
    	// MPI_Barrier(MPI_COMM_WORLD);
-   	printf("%d mininum = %d , %d\n", my_rank, proc_idx, min );
+   	printf("Rank = %d, Process with mininum outliers = %d \n", my_rank, proc_idx);
    	if(my_rank == proc_idx){
+
    		DMatch_new *Final_matches = &(result.best_matches[0]);
-   		cout<<N<<" "<<my_rank<<endl<<std::flush;
+   		cout<<"Send matches of length = "<<N<<" and my rank is "<<my_rank<<endl<<std::flush;
 
    		MPI_Send(&Final_matches[0], N, DMatch_type, 0, 200, MPI_COMM_WORLD);
    	}
 
    	if(my_rank == 0){
-   		cout<<N<<" "<<my_rank<<endl<<std::flush;
+   		cout<<"Receive messages of length = "<<N<<" and my rank is "<<my_rank<<endl<<std::flush;
    		DMatch_new Final_matches[N];
    		MPI_Recv(&Final_matches[0], N, DMatch_type, proc_idx, 200, MPI_COMM_WORLD, &status);
+
+   		endtime = MPI_Wtime();
+   		printf("Total time = %f \n", endtime - starttime);
    		//Checking for serial and parallel implementation
 
    		DMatch match_to_display[N-min];
@@ -355,7 +364,7 @@ time_best RANSAC_parallel(std::vector<Point3f> src_vec, std::vector<Point3f> dst
     double start_time = omp_get_wtime();
 
     #pragma omp parallel for schedule(dynamic) private(i, j, k, idx_remove, H, src_random, dst_random, outliers)
-    for(k =0; k < chunk_size/3; k++){
+    for(k =0; k < chunk_size/4; k++){
         idx_remove.clear();
         src_random.clear();
         dst_random.clear();
@@ -363,7 +372,7 @@ time_best RANSAC_parallel(std::vector<Point3f> src_vec, std::vector<Point3f> dst
 
         #pragma omp critical
         {
-            for(j = 0; j<3; j++){
+            for(j = 0; j<4; j++){
             	// printf("hi");
                 src_random.push_back(src_vec.back());
                 src_vec.pop_back();
